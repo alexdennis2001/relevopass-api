@@ -8,6 +8,10 @@ const idParamSchema = z.object({
   id: guid,
 });
 
+const rejectSchema = z.object({
+  note: z.string().trim().min(1, "A note is required").max(1000),
+});
+
 export async function completeStepHandler(
   req: Request,
   res: Response,
@@ -29,7 +33,8 @@ export async function rejectStepHandler(
 ) {
   try {
     const { id } = idParamSchema.parse(req.params);
-    const detail = await rejectStep(id, req.user!.sub);
+    const { note } = rejectSchema.parse(req.body);
+    const detail = await rejectStep(id, req.user!.sub, note);
     res.json(detail);
   } catch (err) {
     next(toHttpError(err) ?? err);

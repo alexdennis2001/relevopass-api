@@ -31,6 +31,7 @@ export type ProcessStepRecord = {
   ActivatedAt: Date | null;
   CompletedAt: Date | null;
   CompletedByUserId: string | null;
+  RejectionNote: string | null;
 };
 
 export type ProcessSubstepRecord = {
@@ -49,6 +50,7 @@ export type ProcessSubstepRecord = {
   ActivatedAt: Date | null;
   CompletedAt: Date | null;
   CompletedByUserId: string | null;
+  RejectionNote: string | null;
 };
 
 export type ProcessDetail = {
@@ -423,15 +425,6 @@ export async function getProcessById(
   return { process, steps };
 }
 
-export async function listProcesses(): Promise<ProcessRecord[]> {
-  const pool = await getPool();
-  const result = await pool
-    .request()
-    .query<ProcessRecord>("SELECT * FROM dbo.Processes ORDER BY CreatedAt DESC");
-
-  return result.recordset;
-}
-
 export async function getMyProcesses(
   userId: string
 ): Promise<ProcessRecord[]> {
@@ -476,6 +469,7 @@ type MyStepTaskRow = {
   CompletionCount: number;
   ActivatedAt: Date | null;
   CompletedAt: Date | null;
+  RejectionNote: string | null;
   TotalSubsteps: number;
 };
 
@@ -496,6 +490,7 @@ export type MySubstepTask = {
   CompletionCount: number;
   ActivatedAt: Date | null;
   CompletedAt: Date | null;
+  RejectionNote: string | null;
 };
 
 export async function getMyTasks(userId: string): Promise<{
@@ -512,7 +507,7 @@ export async function getMyTasks(userId: string): Promise<{
       SELECT
         s.Id, s.ProcessId, p.Name AS ProcessName, s.Position, s.Title,
         s.Description, s.ActionLabel, s.Status, s.CompletionCount,
-        s.ActivatedAt, s.CompletedAt,
+        s.ActivatedAt, s.CompletedAt, s.RejectionNote,
         (SELECT COUNT(*) FROM dbo.ProcessSubsteps sub WHERE sub.ProcessStepId = s.Id) AS TotalSubsteps
       FROM dbo.ProcessSteps s
       INNER JOIN dbo.Processes p ON p.Id = s.ProcessId
@@ -552,7 +547,8 @@ export async function getMyTasks(userId: string): Promise<{
       SELECT
         sub.Id, sub.ProcessStepId, s.ProcessId, p.Name AS ProcessName,
         s.Title AS StepTitle, sub.Title, sub.Description, sub.ActionLabel,
-        sub.Status, sub.CompletionCount, sub.ActivatedAt, sub.CompletedAt
+        sub.Status, sub.CompletionCount, sub.ActivatedAt, sub.CompletedAt,
+        sub.RejectionNote
       FROM dbo.ProcessSubsteps sub
       INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
       INNER JOIN dbo.Processes p ON p.Id = s.ProcessId
@@ -647,6 +643,7 @@ async function logEvent(
     processSubstepId?: string;
     actorUserId: string;
     eventType: string;
+    metadata?: Record<string, unknown>;
   }
 ) {
   await new sql.Request(transaction)
@@ -658,9 +655,14 @@ async function logEvent(
       input.processSubstepId ?? null
     )
     .input("actorUserId", sql.UniqueIdentifier, input.actorUserId)
-    .input("eventType", sql.VarChar(50), input.eventType).query(`
-      INSERT INTO dbo.ProcessEvents (ProcessId, ProcessStepId, ProcessSubstepId, ActorUserId, EventType)
-      VALUES (@processId, @processStepId, @processSubstepId, @actorUserId, @eventType)
+    .input("eventType", sql.VarChar(50), input.eventType)
+    .input(
+      "metadata",
+      sql.NVarChar(sql.MAX),
+      input.metadata ? JSON.stringify(input.metadata) : null
+    ).query(`
+      INSERT INTO dbo.ProcessEvents (ProcessId, ProcessStepId, ProcessSubstepId, ActorUserId, EventType, Metadata)
+      VALUES (@processId, @processStepId, @processSubstepId, @actorUserId, @eventType, @metadata)
     `);
 }
 
@@ -668,19 +670,22 @@ async function activateStep(
   transaction: InstanceType<typeof sql.Transaction>,
   stepId: string,
   processId: string,
-  actorUserId: string
+  actorUserId: string,
+  rejectionNote: string | null = null
 ) {
-  await new sql.Request(transaction).input("stepId", sql.UniqueIdentifier, stepId)
+  await new sql.Request(transaction)
+    .input("stepId", sql.UniqueIdentifier, stepId)
+    .input("rejectionNote", sql.NVarChar(1000), rejectionNote)
     .query(`
       UPDATE dbo.ProcessSteps
-      SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME()
+      SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME(), RejectionNote = @rejectionNote
       WHERE Id = @stepId
     `);
 
   await new sql.Request(transaction).input("stepId", sql.UniqueIdentifier, stepId)
     .query(`
       UPDATE dbo.ProcessSubsteps
-      SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME()
+      SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME(), RejectionNote = NULL
       WHERE ProcessStepId = @stepId
     `);
 
@@ -808,7 +813,7 @@ export async function completeStep(
       .input("stepId", sql.UniqueIdentifier, stepId)
       .input("actorUserId", sql.UniqueIdentifier, actorUserId).query(`
         UPDATE dbo.ProcessSteps
-        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = SYSUTCDATETIME(), CompletedByUserId = @actorUserId
+        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = SYSUTCDATETIME(), CompletedByUserId = @actorUserId, RejectionNote = NULL
         WHERE Id = @stepId
       `);
 
@@ -861,7 +866,8 @@ export async function completeStep(
 
 export async function rejectStep(
   stepId: string,
-  actorUserId: string
+  actorUserId: string,
+  note: string
 ): Promise<ProcessDetail> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -917,6 +923,7 @@ export async function rejectStep(
       processStepId: stepId,
       actorUserId,
       eventType: "STEP_REJECTED",
+      metadata: { note },
     });
 
     const previousStepResult = await new sql.Request(transaction)
@@ -942,7 +949,8 @@ export async function rejectStep(
       transaction,
       previousStep.Id,
       step.ProcessId,
-      actorUserId
+      actorUserId,
+      note
     );
 
     await transaction.commit();
@@ -1013,7 +1021,7 @@ export async function completeSubstep(
       .input("substepId", sql.UniqueIdentifier, substepId)
       .input("actorUserId", sql.UniqueIdentifier, actorUserId).query(`
         UPDATE dbo.ProcessSubsteps
-        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = SYSUTCDATETIME(), CompletedByUserId = @actorUserId
+        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = SYSUTCDATETIME(), CompletedByUserId = @actorUserId, RejectionNote = NULL
         WHERE Id = @substepId
       `);
 
@@ -1023,6 +1031,86 @@ export async function completeSubstep(
       processSubstepId: substepId,
       actorUserId,
       eventType: "SUBSTEP_COMPLETED",
+    });
+
+    await transaction.commit();
+    return (await getProcessById(step.ProcessId))!;
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
+}
+
+export async function rejectSubstep(
+  substepId: string,
+  actorUserId: string,
+  note: string
+): Promise<ProcessDetail> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const substepResult = await new sql.Request(transaction)
+      .input("substepId", sql.UniqueIdentifier, substepId)
+      .query<{
+        Id: string;
+        ProcessStepId: string;
+        Status: string;
+      }>(
+        "SELECT Id, ProcessStepId, Status FROM dbo.ProcessSubsteps WHERE Id = @substepId"
+      );
+
+    const substep = substepResult.recordset[0];
+    if (!substep) {
+      throw new HttpError(404, "Subprocess not found");
+    }
+
+    if (substep.Status !== "COMPLETED") {
+      throw new InvalidStateError("Only a completed subprocess can be rejected");
+    }
+
+    const stepResult = await new sql.Request(transaction)
+      .input("stepId", sql.UniqueIdentifier, substep.ProcessStepId)
+      .query<{ Id: string; ProcessId: string; AssigneeUserId: string }>(
+        "SELECT Id, ProcessId, AssigneeUserId FROM dbo.ProcessSteps WHERE Id = @stepId"
+      );
+
+    const step = stepResult.recordset[0];
+
+    if (step.AssigneeUserId !== actorUserId) {
+      throw new ForbiddenActionError("You are not the assignee of this step");
+    }
+
+    const processResult = await new sql.Request(transaction)
+      .input("processId", sql.UniqueIdentifier, step.ProcessId)
+      .query<{ CurrentStepId: string | null }>(
+        "SELECT CurrentStepId FROM dbo.Processes WHERE Id = @processId"
+      );
+
+    const process = processResult.recordset[0];
+    if (!process || process.CurrentStepId !== step.Id) {
+      throw new InvalidStateError(
+        "This subprocess's step does not currently hold the relevo"
+      );
+    }
+
+    await new sql.Request(transaction)
+      .input("substepId", sql.UniqueIdentifier, substepId)
+      .input("note", sql.NVarChar(1000), note)
+      .query(`
+        UPDATE dbo.ProcessSubsteps
+        SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME(), CompletedAt = NULL, CompletedByUserId = NULL, RejectionNote = @note
+        WHERE Id = @substepId
+      `);
+
+    await logEvent(transaction, {
+      processId: step.ProcessId,
+      processStepId: step.Id,
+      processSubstepId: substepId,
+      actorUserId,
+      eventType: "SUBSTEP_REJECTED",
+      metadata: { note },
     });
 
     await transaction.commit();

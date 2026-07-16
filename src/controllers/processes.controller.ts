@@ -9,7 +9,6 @@ import {
   getProcessById,
   getProcessEvents,
   InvalidAssigneeError,
-  listProcesses,
   startProcess,
   syncProcessSteps,
 } from "../services/processes.service";
@@ -96,12 +95,12 @@ export async function startProcessHandler(
 }
 
 export async function listProcessesHandler(
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ) {
   try {
-    const processes = await listProcesses();
+    const processes = await getMyProcesses(req.user!.sub);
     res.json(processes);
   } catch (err) {
     next(err);
