@@ -458,7 +458,13 @@ export async function getMyProcesses(
   return result.recordset;
 }
 
-export type MyStepTask = {
+export type IncompleteSubstepInfo = {
+  Title: string;
+  AssigneeFirstName: string;
+  AssigneeLastName: string;
+};
+
+type MyStepTaskRow = {
   Id: string;
   ProcessId: string;
   ProcessName: string;
@@ -468,6 +474,13 @@ export type MyStepTask = {
   ActionLabel: string;
   Status: "WAITING" | "PENDING" | "COMPLETED";
   CompletionCount: number;
+  ActivatedAt: Date | null;
+  CompletedAt: Date | null;
+  TotalSubsteps: number;
+};
+
+export type MyStepTask = MyStepTaskRow & {
+  incompleteSubsteps: IncompleteSubstepInfo[];
 };
 
 export type MySubstepTask = {
@@ -481,6 +494,8 @@ export type MySubstepTask = {
   ActionLabel: string;
   Status: "WAITING" | "PENDING" | "COMPLETED";
   CompletionCount: number;
+  ActivatedAt: Date | null;
+  CompletedAt: Date | null;
 };
 
 export async function getMyTasks(userId: string): Promise<{
@@ -489,19 +504,47 @@ export async function getMyTasks(userId: string): Promise<{
 }> {
   const pool = await getPool();
 
+  // Only PENDING items — things actually actionable right now, not the
+  // full history of everything ever assigned to this user.
   const stepsResult = await pool
     .request()
-    .input("userId", sql.UniqueIdentifier, userId).query<MyStepTask>(`
+    .input("userId", sql.UniqueIdentifier, userId).query<MyStepTaskRow>(`
       SELECT
         s.Id, s.ProcessId, p.Name AS ProcessName, s.Position, s.Title,
-        s.Description, s.ActionLabel, s.Status, s.CompletionCount
+        s.Description, s.ActionLabel, s.Status, s.CompletionCount,
+        s.ActivatedAt, s.CompletedAt,
+        (SELECT COUNT(*) FROM dbo.ProcessSubsteps sub WHERE sub.ProcessStepId = s.Id) AS TotalSubsteps
       FROM dbo.ProcessSteps s
       INNER JOIN dbo.Processes p ON p.Id = s.ProcessId
-      WHERE s.AssigneeUserId = @userId
-      ORDER BY
-        CASE s.Status WHEN 'PENDING' THEN 0 WHEN 'WAITING' THEN 1 ELSE 2 END,
-        p.Name, s.Position
+      WHERE s.AssigneeUserId = @userId AND s.Status = 'PENDING'
+      ORDER BY p.Name, s.Position
     `);
+
+  const incompleteSubstepsResult = await pool
+    .request()
+    .input("userId", sql.UniqueIdentifier, userId).query<
+      IncompleteSubstepInfo & { ProcessStepId: string }
+    >(`
+      SELECT
+        sub.ProcessStepId, sub.Title,
+        u.FirstName AS AssigneeFirstName, u.LastName AS AssigneeLastName
+      FROM dbo.ProcessSubsteps sub
+      INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
+      INNER JOIN dbo.Users u ON u.Id = sub.AssigneeUserId
+      WHERE s.AssigneeUserId = @userId AND s.Status = 'PENDING' AND sub.Status <> 'COMPLETED'
+      ORDER BY sub.DisplayOrder
+    `);
+
+  const steps = stepsResult.recordset.map((step) => ({
+    ...step,
+    incompleteSubsteps: incompleteSubstepsResult.recordset
+      .filter((sub) => sub.ProcessStepId === step.Id)
+      .map(({ Title, AssigneeFirstName, AssigneeLastName }) => ({
+        Title,
+        AssigneeFirstName,
+        AssigneeLastName,
+      })),
+  }));
 
   const substepsResult = await pool
     .request()
@@ -509,17 +552,15 @@ export async function getMyTasks(userId: string): Promise<{
       SELECT
         sub.Id, sub.ProcessStepId, s.ProcessId, p.Name AS ProcessName,
         s.Title AS StepTitle, sub.Title, sub.Description, sub.ActionLabel,
-        sub.Status, sub.CompletionCount
+        sub.Status, sub.CompletionCount, sub.ActivatedAt, sub.CompletedAt
       FROM dbo.ProcessSubsteps sub
       INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
       INNER JOIN dbo.Processes p ON p.Id = s.ProcessId
-      WHERE sub.AssigneeUserId = @userId
-      ORDER BY
-        CASE sub.Status WHEN 'PENDING' THEN 0 WHEN 'WAITING' THEN 1 ELSE 2 END,
-        p.Name, s.Position, sub.DisplayOrder
+      WHERE sub.AssigneeUserId = @userId AND sub.Status = 'PENDING'
+      ORDER BY p.Name, s.Position, sub.DisplayOrder
     `);
 
-  return { steps: stepsResult.recordset, substeps: substepsResult.recordset };
+  return { steps, substeps: substepsResult.recordset };
 }
 
 export type ProcessEventRecord = {
