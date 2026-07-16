@@ -52,6 +52,17 @@ export async function findUserById(id: string): Promise<UserRecord | null> {
   return result.recordset[0] ?? null;
 }
 
+export async function listUsers(): Promise<UserRecord[]> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .query<UserRecord>(
+      "SELECT * FROM dbo.Users WHERE IsActive = 1 ORDER BY FirstName, LastName"
+    );
+
+  return result.recordset;
+}
+
 export async function createUser(input: {
   firstName: string;
   lastName: string;
