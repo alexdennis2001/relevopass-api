@@ -14,7 +14,7 @@ export type UserRecord = {
 
 export class DuplicateEmailError extends Error {
   constructor(email: string) {
-    super(`A user with email "${email}" already exists`);
+    super(`Ya existe un usuario con el correo electrónico "${email}"`);
   }
 }
 

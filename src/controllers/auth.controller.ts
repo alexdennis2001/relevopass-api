@@ -79,7 +79,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
     const user = await findUserByEmail(body.email);
 
     if (!user || !user.IsActive) {
-      return next(new HttpError(401, "Invalid email or password"));
+      return next(new HttpError(401, "Correo electrónico o contraseña incorrectos"));
     }
 
     const passwordMatches = await verifyPassword(
@@ -87,7 +87,7 @@ export async function login(req: Request, res: Response, next: NextFunction) {
       user.PasswordHash
     );
     if (!passwordMatches) {
-      return next(new HttpError(401, "Invalid email or password"));
+      return next(new HttpError(401, "Correo electrónico o contraseña incorrectos"));
     }
 
     const token = signAuthToken({ sub: user.Id, role: user.Role });
@@ -108,7 +108,7 @@ export async function me(req: Request, res: Response, next: NextFunction) {
   try {
     const user = await findUserById(req.user!.sub);
     if (!user) {
-      return next(new HttpError(401, "Not authenticated"));
+      return next(new HttpError(401, "No autenticado"));
     }
     res.json(toPublicUser(user));
   } catch (err) {

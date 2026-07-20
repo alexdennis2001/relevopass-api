@@ -6,13 +6,13 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const token = req.cookies?.token;
 
   if (!token) {
-    return next(new HttpError(401, "Not authenticated"));
+    return next(new HttpError(401, "No autenticado"));
   }
 
   try {
     req.user = verifyAuthToken(token);
     next();
   } catch {
-    next(new HttpError(401, "Invalid or expired session"));
+    next(new HttpError(401, "Sesión inválida o expirada"));
   }
 }

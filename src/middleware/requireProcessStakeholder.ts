@@ -16,10 +16,10 @@ export async function requireProcessStakeholder(
     );
 
     if (access === "not_found") {
-      return next(new HttpError(404, "Process not found"));
+      return next(new HttpError(404, "Proceso no encontrado"));
     }
     if (access === "forbidden") {
-      return next(new HttpError(403, "Forbidden"));
+      return next(new HttpError(403, "Acceso denegado"));
     }
     next();
   } catch (err) {

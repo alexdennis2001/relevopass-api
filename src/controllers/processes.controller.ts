@@ -71,7 +71,7 @@ export async function getProcessHandler(
     const detail = await getProcessById(id);
 
     if (!detail) {
-      return next(new HttpError(404, "Process not found"));
+      return next(new HttpError(404, "Proceso no encontrado"));
     }
 
     res.json(detail);

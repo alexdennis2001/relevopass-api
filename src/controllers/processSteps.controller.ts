@@ -9,7 +9,7 @@ const idParamSchema = z.object({
 });
 
 const rejectSchema = z.object({
-  note: z.string().trim().min(1, "A note is required").max(1000),
+  note: z.string().trim().min(1, "Se requiere una nota").max(1000),
 });
 
 export async function completeStepHandler(

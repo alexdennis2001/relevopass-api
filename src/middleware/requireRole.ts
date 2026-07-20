@@ -5,7 +5,7 @@ import { HttpError } from "./errorHandler";
 export function requireRole(...roles: AuthTokenPayload["role"][]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return next(new HttpError(403, "Forbidden"));
+      return next(new HttpError(403, "Acceso denegado"));
     }
     next();
   };

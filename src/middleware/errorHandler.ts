@@ -21,9 +21,9 @@ export function errorHandler(
   }
 
   if (err instanceof ZodError) {
-    return res.status(400).json({ error: "Invalid request", issues: err.issues });
+    return res.status(400).json({ error: "Solicitud inválida", issues: err.issues });
   }
 
   console.error(err);
-  return res.status(500).json({ error: "Internal server error" });
+  return res.status(500).json({ error: "Error interno del servidor" });
 }

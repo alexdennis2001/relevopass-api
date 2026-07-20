@@ -58,7 +58,7 @@ export async function getTemplateHandler(
     const { id } = idParamSchema.parse(req.params);
     const detail = await getTemplateById(id);
     if (!detail) {
-      throw new HttpError(404, "Template not found");
+      throw new HttpError(404, "Plantilla no encontrada");
     }
     res.json(detail);
   } catch (err) {

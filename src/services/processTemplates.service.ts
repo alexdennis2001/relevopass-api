@@ -60,11 +60,11 @@ export async function createTemplateFromProcess(
 
     const process = processResult.recordset[0];
     if (!process) {
-      throw new HttpError(404, "Process not found");
+      throw new HttpError(404, "Proceso no encontrado");
     }
     if (process.CreatedByUserId !== actorUserId) {
       throw new ForbiddenActionError(
-        "Only the process creator can save it as a template"
+        "Solo quien creó el proceso puede guardarlo como plantilla"
       );
     }
 

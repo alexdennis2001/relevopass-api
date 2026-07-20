@@ -60,12 +60,12 @@ export type ProcessDetail = {
 
 export class InvalidAssigneeError extends Error {
   constructor() {
-    super("One or more assignee user IDs do not exist");
+    super("Uno o más IDs de usuarios asignados no existen");
   }
 }
 
 const FK_VIOLATION_ERROR_NUMBER = 547;
-const DEFAULT_ACTION_LABEL = "Approve";
+const DEFAULT_ACTION_LABEL = "Completar";
 
 export type CreateSubstepInput = {
   title: string;
@@ -266,10 +266,10 @@ export async function syncProcessSteps(
 
     const process = processResult.recordset[0];
     if (!process) {
-      throw new HttpError(404, "Process not found");
+      throw new HttpError(404, "Proceso no encontrado");
     }
     if (process.Status !== "DRAFT") {
-      throw new InvalidStateError("Only a draft process can be edited");
+      throw new InvalidStateError("Solo se puede editar un proceso en borrador");
     }
 
     const currentStepsResult = await new sql.Request(transaction)
@@ -714,10 +714,10 @@ export async function startProcess(
 
     const process = processResult.recordset[0];
     if (!process) {
-      throw new HttpError(404, "Process not found");
+      throw new HttpError(404, "Proceso no encontrado");
     }
     if (process.Status !== "DRAFT") {
-      throw new InvalidStateError("Only a draft process can be started");
+      throw new InvalidStateError("Solo se puede iniciar un proceso en borrador");
     }
 
     const firstStepResult = await new sql.Request(transaction)
@@ -730,7 +730,7 @@ export async function startProcess(
 
     const firstStep = firstStepResult.recordset[0];
     if (!firstStep) {
-      throw new InvalidStateError("Process has no steps");
+      throw new InvalidStateError("El proceso no tiene pasos");
     }
 
     await new sql.Request(transaction)
@@ -779,11 +779,11 @@ export async function completeStep(
 
     const step = stepResult.recordset[0];
     if (!step) {
-      throw new HttpError(404, "Step not found");
+      throw new HttpError(404, "Paso no encontrado");
     }
 
     if (step.AssigneeUserId !== actorUserId) {
-      throw new ForbiddenActionError("You are not the assignee of this step");
+      throw new ForbiddenActionError("No eres el asignado de este paso");
     }
 
     const processResult = await new sql.Request(transaction)
@@ -795,7 +795,7 @@ export async function completeStep(
     const process = processResult.recordset[0];
     if (!process || process.CurrentStepId !== step.Id) {
       throw new InvalidStateError(
-        "This step does not currently hold the relevo"
+        "Este paso no tiene actualmente el relevo"
       );
     }
 
@@ -806,7 +806,7 @@ export async function completeStep(
       );
 
     if (incompleteSubstepsResult.recordset[0].Count > 0) {
-      throw new InvalidStateError("All subprocesses must be completed first");
+      throw new InvalidStateError("Primero deben completarse todos los subprocesos");
     }
 
     await new sql.Request(transaction)
@@ -887,11 +887,11 @@ export async function rejectStep(
 
     const step = stepResult.recordset[0];
     if (!step) {
-      throw new HttpError(404, "Step not found");
+      throw new HttpError(404, "Paso no encontrado");
     }
 
     if (step.AssigneeUserId !== actorUserId) {
-      throw new ForbiddenActionError("You are not the assignee of this step");
+      throw new ForbiddenActionError("No eres el asignado de este paso");
     }
 
     const processResult = await new sql.Request(transaction)
@@ -903,12 +903,12 @@ export async function rejectStep(
     const process = processResult.recordset[0];
     if (!process || process.CurrentStepId !== step.Id) {
       throw new InvalidStateError(
-        "This step does not currently hold the relevo"
+        "Este paso no tiene actualmente el relevo"
       );
     }
 
     if (step.Position <= 1) {
-      throw new InvalidStateError("The first step cannot be rejected");
+      throw new InvalidStateError("El primer paso no se puede rechazar");
     }
 
     await new sql.Request(transaction).input("stepId", sql.UniqueIdentifier, stepId)
@@ -935,7 +935,7 @@ export async function rejectStep(
 
     const previousStep = previousStepResult.recordset[0];
     if (!previousStep) {
-      throw new InvalidStateError("Previous step not found");
+      throw new InvalidStateError("No se encontró el paso anterior");
     }
 
     await new sql.Request(transaction)
@@ -983,17 +983,17 @@ export async function completeSubstep(
 
     const substep = substepResult.recordset[0];
     if (!substep) {
-      throw new HttpError(404, "Subprocess not found");
+      throw new HttpError(404, "Subproceso no encontrado");
     }
 
     if (substep.AssigneeUserId !== actorUserId) {
       throw new ForbiddenActionError(
-        "You are not the assignee of this subprocess"
+        "No eres el asignado de este subproceso"
       );
     }
 
     if (substep.Status === "COMPLETED") {
-      throw new InvalidStateError("This subprocess is already completed");
+      throw new InvalidStateError("Este subproceso ya está completado");
     }
 
     const stepResult = await new sql.Request(transaction)
@@ -1013,7 +1013,7 @@ export async function completeSubstep(
     const process = processResult.recordset[0];
     if (!process || process.CurrentStepId !== step.Id) {
       throw new InvalidStateError(
-        "This subprocess's step does not currently hold the relevo"
+        "El paso de este subproceso no tiene actualmente el relevo"
       );
     }
 
@@ -1063,11 +1063,11 @@ export async function rejectSubstep(
 
     const substep = substepResult.recordset[0];
     if (!substep) {
-      throw new HttpError(404, "Subprocess not found");
+      throw new HttpError(404, "Subproceso no encontrado");
     }
 
     if (substep.Status !== "COMPLETED") {
-      throw new InvalidStateError("Only a completed subprocess can be rejected");
+      throw new InvalidStateError("Solo se puede rechazar un subproceso completado");
     }
 
     const stepResult = await new sql.Request(transaction)
@@ -1079,7 +1079,7 @@ export async function rejectSubstep(
     const step = stepResult.recordset[0];
 
     if (step.AssigneeUserId !== actorUserId) {
-      throw new ForbiddenActionError("You are not the assignee of this step");
+      throw new ForbiddenActionError("No eres el asignado de este paso");
     }
 
     const processResult = await new sql.Request(transaction)
@@ -1091,7 +1091,7 @@ export async function rejectSubstep(
     const process = processResult.recordset[0];
     if (!process || process.CurrentStepId !== step.Id) {
       throw new InvalidStateError(
-        "This subprocess's step does not currently hold the relevo"
+        "El paso de este subproceso no tiene actualmente el relevo"
       );
     }
 
