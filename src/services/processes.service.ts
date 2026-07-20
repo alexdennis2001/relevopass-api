@@ -1,6 +1,10 @@
 import { getPool, sql } from "../db/pool";
 import { HttpError } from "../middleware/errorHandler";
 import { ForbiddenActionError, InvalidStateError } from "../lib/workflowErrors";
+import {
+  notifyIfAllSubstepsCompleted,
+  notifyStepActivated,
+} from "./notifications.service";
 
 export type ProcessRecord = {
   Id: string;
@@ -750,6 +754,11 @@ export async function startProcess(
     await activateStep(transaction, firstStep.Id, processId, actorUserId);
 
     await transaction.commit();
+
+    notifyStepActivated(firstStep.Id).catch((err) =>
+      console.error("Failed to send step-activated notification:", err)
+    );
+
     return (await getProcessById(processId))!;
   } catch (err) {
     await transaction.rollback();
@@ -857,6 +866,13 @@ export async function completeStep(
     }
 
     await transaction.commit();
+
+    if (nextStep) {
+      notifyStepActivated(nextStep.Id).catch((err) =>
+        console.error("Failed to send step-activated notification:", err)
+      );
+    }
+
     return (await getProcessById(step.ProcessId))!;
   } catch (err) {
     await transaction.rollback();
@@ -954,6 +970,11 @@ export async function rejectStep(
     );
 
     await transaction.commit();
+
+    notifyStepActivated(previousStep.Id).catch((err) =>
+      console.error("Failed to send step-activated notification:", err)
+    );
+
     return (await getProcessById(step.ProcessId))!;
   } catch (err) {
     await transaction.rollback();
@@ -1034,6 +1055,11 @@ export async function completeSubstep(
     });
 
     await transaction.commit();
+
+    notifyIfAllSubstepsCompleted(step.Id).catch((err) =>
+      console.error("Failed to send step-ready notification:", err)
+    );
+
     return (await getProcessById(step.ProcessId))!;
   } catch (err) {
     await transaction.rollback();
