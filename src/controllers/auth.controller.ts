@@ -9,7 +9,12 @@ import {
   findUserByEmail,
   findUserById,
   toPublicUser,
+  updatePasswordHash,
 } from "../services/users.service";
+import {
+  consumePasswordResetToken,
+  requestPasswordReset,
+} from "../services/passwordReset.service";
 
 const COOKIE_NAME = "token";
 const COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -111,6 +116,56 @@ export async function me(req: Request, res: Response, next: NextFunction) {
       return next(new HttpError(401, "No autenticado"));
     }
     res.json(toPublicUser(user));
+  } catch (err) {
+    next(err);
+  }
+}
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+export async function forgotPassword(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { email } = forgotPasswordSchema.parse(req.body);
+    await requestPasswordReset(email);
+    // Always the same response, whether or not the email exists —
+    // don't let this endpoint be used to enumerate registered accounts.
+    res.json({
+      message:
+        "Si el correo existe en nuestro sistema, se ha enviado un enlace para restablecer la contraseña.",
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  newPassword: z.string().min(8).max(200),
+});
+
+export async function resetPassword(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { token, newPassword } = resetPasswordSchema.parse(req.body);
+
+    const consumed = await consumePasswordResetToken(token);
+    if (!consumed) {
+      throw new HttpError(400, "El enlace no es válido o ya expiró");
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await updatePasswordHash(consumed.userId, passwordHash);
+
+    res.json({ success: true });
   } catch (err) {
     next(err);
   }

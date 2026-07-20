@@ -63,6 +63,21 @@ export async function listUsers(): Promise<UserRecord[]> {
   return result.recordset;
 }
 
+export async function updatePasswordHash(
+  userId: string,
+  passwordHash: string
+): Promise<void> {
+  const pool = await getPool();
+  await pool
+    .request()
+    .input("id", sql.UniqueIdentifier, userId)
+    .input("passwordHash", sql.NVarChar(sql.MAX), passwordHash).query(`
+      UPDATE dbo.Users
+      SET PasswordHash = @passwordHash, UpdatedAt = SYSUTCDATETIME()
+      WHERE Id = @id
+    `);
+}
+
 export async function createUser(input: {
   firstName: string;
   lastName: string;

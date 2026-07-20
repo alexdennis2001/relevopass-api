@@ -8,6 +8,47 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function emailHeader(): string {
+  return `
+    <div style="text-align: center; background-color: #096043; padding: 28px 24px 20px;">
+      <img
+        src="${LOGO_DATA_URI}"
+        alt="RelevoPass"
+        width="200"
+        height="68"
+        style="display: block; margin: 0 auto; width: 200px; height: auto; max-width: 100%;"
+      />
+      <p style="margin: 8px 0 0; color: #c8ddd2; font-size: 14px;">
+        Gestión y seguimiento de procesos
+      </p>
+    </div>`;
+}
+
+function emailFooter(): string {
+  const currentYear = new Date().getFullYear();
+  return `
+    <div style="text-align: center; background-color: #074d36; color: #c8ddd2; padding: 20px 24px;">
+      <p style="margin: 4px 0; font-size: 13px;">
+        Correo enviado automáticamente por la plataforma RelevoPass.
+      </p>
+
+      <p style="margin: 4px 0; font-size: 13px;">
+        No respondas directamente a este mensaje.
+      </p>
+
+      <p style="margin: 12px 0 0; font-size: 12px; color: #8fa9c9;">
+        © ${currentYear} RelevoPass. Todos los derechos reservados.
+      </p>
+    </div>`;
+}
+
+function emailTextFooter(): string {
+  const currentYear = new Date().getFullYear();
+  return `—
+Correo enviado automáticamente por la plataforma RelevoPass. No respondas directamente a este mensaje.
+© ${currentYear} RelevoPass. Todos los derechos reservados.`;
+}
+
 export type StepNotificationEmailData = {
   recipientFirstName: string;
   headline: string;
@@ -26,7 +67,6 @@ export type StepNotificationEmailData = {
 export function renderStepNotificationEmail(
   data: StepNotificationEmailData
 ): { html: string; text: string } {
-  const currentYear = new Date().getFullYear();
   const activationDate = data.activatedAt.toLocaleString("es-MX", {
     dateStyle: "long",
     timeStyle: "short",
@@ -36,21 +76,7 @@ export function renderStepNotificationEmail(
   const html = `
 <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #212121; background-color: #f3f5f8; padding: 32px 16px;">
   <div style="max-width: 600px; margin: auto; background-color: #096043; border-radius: 28px; overflow: hidden; box-shadow: 0 8px 24px rgba(9, 96, 67, 0.15);">
-
-    <!-- Header -->
-    <div style="text-align: center; background-color: #096043; padding: 28px 24px 20px;">
-      <img
-        src="${LOGO_DATA_URI}"
-        alt="RelevoPass"
-        width="200"
-        height="68"
-        style="display: block; margin: 0 auto; width: 200px; height: auto; max-width: 100%;"
-      />
-      <p style="margin: 8px 0 0; color: #c8ddd2; font-size: 14px;">
-        Gestión y seguimiento de procesos
-      </p>
-    </div>
-
+${emailHeader()}
     <!-- Body -->
     <div style="padding: 8px 24px 28px; color: #ffffff; text-align: left;">
 
@@ -159,21 +185,7 @@ export function renderStepNotificationEmail(
         ${data.processUrl}
       </p>
     </div>
-
-    <!-- Footer -->
-    <div style="text-align: center; background-color: #074d36; color: #c8ddd2; padding: 20px 24px;">
-      <p style="margin: 4px 0; font-size: 13px;">
-        Correo enviado automáticamente por la plataforma RelevoPass.
-      </p>
-
-      <p style="margin: 4px 0; font-size: 13px;">
-        No respondas directamente a este mensaje.
-      </p>
-
-      <p style="margin: 12px 0 0; font-size: 12px; color: #8fa9c9;">
-        © ${currentYear} RelevoPass. Todos los derechos reservados.
-      </p>
-    </div>
+${emailFooter()}
   </div>
 </div>
 `.trim();
@@ -196,9 +208,83 @@ Descripción del paso: ${description}
 
 Revisar proceso: ${data.processUrl}
 
-—
-Correo enviado automáticamente por la plataforma RelevoPass. No respondas directamente a este mensaje.
-© ${currentYear} RelevoPass. Todos los derechos reservados.`;
+${emailTextFooter()}`;
+
+  return { html, text };
+}
+
+export type AuthEmailData = {
+  recipientFirstName: string;
+  headline: string;
+  intro: string;
+  ctaLabel: string;
+  ctaUrl: string;
+  disclaimer?: string;
+};
+
+export function renderAuthEmail(data: AuthEmailData): {
+  html: string;
+  text: string;
+} {
+  const html = `
+<div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #212121; background-color: #f3f5f8; padding: 32px 16px;">
+  <div style="max-width: 600px; margin: auto; background-color: #096043; border-radius: 28px; overflow: hidden; box-shadow: 0 8px 24px rgba(9, 96, 67, 0.15);">
+${emailHeader()}
+    <!-- Body -->
+    <div style="padding: 8px 24px 28px; color: #ffffff; text-align: left;">
+
+      <h1 style="font-size: 22px; line-height: 1.3; margin: 16px 0; text-align: center;">
+        ${escapeHtml(data.headline)}
+      </h1>
+
+      <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+        Hola <strong>${escapeHtml(data.recipientFirstName)}</strong>,
+      </p>
+
+      <p style="font-size: 15px; line-height: 1.6; margin: 0 0 24px;">
+        ${escapeHtml(data.intro)}
+      </p>
+
+      <!-- CTA Button -->
+      <div style="text-align: center; margin-top: 12px;">
+        <a
+          href="${data.ctaUrl}"
+          style="display: inline-block; background-color: #ffffff; color: #096043; font-size: 15px; font-weight: 700; text-decoration: none; padding: 14px 28px; border-radius: 10px;"
+        >
+          ${escapeHtml(data.ctaLabel)}
+        </a>
+      </div>
+
+      <p style="margin: 24px 0 0; font-size: 13px; line-height: 1.6; color: #c8ddd2; text-align: center;">
+        Si el botón no funciona, copia y pega el siguiente enlace en tu navegador:
+      </p>
+
+      <p style="margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: #ffffff; text-align: center; word-break: break-all;">
+        ${data.ctaUrl}
+      </p>
+
+      ${
+        data.disclaimer
+          ? `<p style="margin: 24px 0 0; font-size: 13px; line-height: 1.6; color: #c8ddd2; text-align: center;">
+        ${escapeHtml(data.disclaimer)}
+      </p>`
+          : ""
+      }
+    </div>
+${emailFooter()}
+  </div>
+</div>
+`.trim();
+
+  const text = `${data.headline}
+
+Hola ${data.recipientFirstName},
+
+${data.intro}
+
+${data.ctaLabel}: ${data.ctaUrl}
+${data.disclaimer ? `\n${data.disclaimer}\n` : ""}
+${emailTextFooter()}`;
 
   return { html, text };
 }
