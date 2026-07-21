@@ -429,6 +429,85 @@ export async function getProcessById(
   return { process, steps };
 }
 
+export async function deleteProcess(
+  processId: string,
+  actorUserId: string
+): Promise<void> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const processResult = await new sql.Request(transaction)
+      .input("processId", sql.UniqueIdentifier, processId)
+      .query<{ CreatedByUserId: string; Status: string }>(
+        "SELECT CreatedByUserId, Status FROM dbo.Processes WHERE Id = @processId"
+      );
+
+    const process = processResult.recordset[0];
+    if (!process) {
+      throw new HttpError(404, "Proceso no encontrado");
+    }
+
+    if (process.Status === "COMPLETED") {
+      throw new InvalidStateError(
+        "No se puede eliminar un proceso completado"
+      );
+    }
+
+    let authorized = process.CreatedByUserId === actorUserId;
+    if (!authorized) {
+      const assigneeResult = await new sql.Request(transaction)
+        .input("processId", sql.UniqueIdentifier, processId)
+        .input("actorUserId", sql.UniqueIdentifier, actorUserId).query<{
+        IsAssignee: number;
+      }>(`
+          SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM dbo.ProcessSteps WHERE ProcessId = @processId AND AssigneeUserId = @actorUserId
+          ) THEN 1 ELSE 0 END AS IsAssignee
+        `);
+      authorized = assigneeResult.recordset[0].IsAssignee === 1;
+    }
+
+    if (!authorized) {
+      throw new ForbiddenActionError(
+        "No tienes permiso para eliminar este proceso"
+      );
+    }
+
+    await new sql.Request(transaction)
+      .input("processId", sql.UniqueIdentifier, processId)
+      .query("DELETE FROM dbo.ProcessEvents WHERE ProcessId = @processId");
+
+    await new sql.Request(transaction)
+      .input("processId", sql.UniqueIdentifier, processId).query(`
+        DELETE sub
+        FROM dbo.ProcessSubsteps sub
+        INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
+        WHERE s.ProcessId = @processId
+      `);
+
+    await new sql.Request(transaction)
+      .input("processId", sql.UniqueIdentifier, processId)
+      .query(
+        "UPDATE dbo.Processes SET CurrentStepId = NULL WHERE Id = @processId"
+      );
+
+    await new sql.Request(transaction)
+      .input("processId", sql.UniqueIdentifier, processId)
+      .query("DELETE FROM dbo.ProcessSteps WHERE ProcessId = @processId");
+
+    await new sql.Request(transaction)
+      .input("processId", sql.UniqueIdentifier, processId)
+      .query("DELETE FROM dbo.Processes WHERE Id = @processId");
+
+    await transaction.commit();
+  } catch (err) {
+    await transaction.rollback();
+    throw err;
+  }
+}
+
 export async function getMyProcesses(
   userId: string
 ): Promise<ProcessRecord[]> {

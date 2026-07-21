@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createProcessHandler,
+  deleteProcessHandler,
   getMyProcessesHandler,
   getProcessEventsHandler,
   getProcessHandler,
@@ -48,3 +49,4 @@ processesRouter.get(
   requireProcessStakeholder,
   getProcessEventsHandler
 );
+processesRouter.delete("/:id", requireAuth, deleteProcessHandler);

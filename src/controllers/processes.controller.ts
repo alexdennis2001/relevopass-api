@@ -5,6 +5,7 @@ import { HttpError } from "../middleware/errorHandler";
 import { toHttpError } from "../lib/workflowErrors";
 import {
   createProcess,
+  deleteProcess,
   getMyProcesses,
   getProcessById,
   getProcessEvents,
@@ -89,6 +90,20 @@ export async function startProcessHandler(
     const { id } = idParamSchema.parse(req.params);
     const detail = await startProcess(id, req.user!.sub);
     res.json(detail);
+  } catch (err) {
+    next(toHttpError(err) ?? err);
+  }
+}
+
+export async function deleteProcessHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const { id } = idParamSchema.parse(req.params);
+    await deleteProcess(id, req.user!.sub);
+    res.status(204).send();
   } catch (err) {
     next(toHttpError(err) ?? err);
   }
