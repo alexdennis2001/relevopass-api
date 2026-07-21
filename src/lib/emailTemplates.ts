@@ -147,7 +147,7 @@ ${emailHeader()}
 
           <tr>
             <td style="padding: 8px 0; color: #667085; vertical-align: top;">
-              Subprocesos pendientes:
+              Subpasos pendientes:
             </td>
             <td style="padding: 8px 0; font-weight: 600; vertical-align: top;">
               ${escapeHtml(data.pendingSubsteps)}
@@ -202,7 +202,7 @@ Información del proceso:
 - Posición: Paso ${data.stepPosition} de ${data.totalSteps}
 - Creado por: ${data.adminName}
 - Fecha de activación: ${activationDate}
-- Subprocesos pendientes: ${data.pendingSubsteps}
+- Subpasos pendientes: ${data.pendingSubsteps}
 
 Descripción del paso: ${description}
 

@@ -138,8 +138,8 @@ export async function notifyStepActivated(stepId: string): Promise<void> {
       send(
         email,
         firstName,
-        "Tienes un subproceso pendiente",
-        `Dentro del paso "${step.Title}" del proceso "${step.ProcessName}", tienes uno o más subprocesos por completar.`,
+        "Tienes un subpaso pendiente",
+        `Dentro del paso "${step.Title}" del proceso "${step.ProcessName}", tienes uno o más subpasos por completar.`,
         step,
         totalSteps,
         titles.join(", ")
@@ -183,7 +183,7 @@ export async function notifyIfAllSubstepsCompleted(
     step.AssigneeEmail,
     step.AssigneeFirstName,
     "Todo listo, el relevo es tuyo",
-    `Todos los subprocesos del paso "${step.Title}" en el proceso "${step.ProcessName}" han sido completados. Ahora es tu turno.`,
+    `Todos los subpasos del paso "${step.Title}" en el proceso "${step.ProcessName}" han sido completados. Ahora es tu turno.`,
     step,
     totalSteps,
     "Ninguno"

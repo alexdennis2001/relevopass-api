@@ -815,7 +815,7 @@ export async function completeStep(
       );
 
     if (incompleteSubstepsResult.recordset[0].Count > 0) {
-      throw new InvalidStateError("Primero deben completarse todos los subprocesos");
+      throw new InvalidStateError("Primero deben completarse todos los subpasos");
     }
 
     await new sql.Request(transaction)
@@ -1004,17 +1004,17 @@ export async function completeSubstep(
 
     const substep = substepResult.recordset[0];
     if (!substep) {
-      throw new HttpError(404, "Subproceso no encontrado");
+      throw new HttpError(404, "Subpaso no encontrado");
     }
 
     if (substep.AssigneeUserId !== actorUserId) {
       throw new ForbiddenActionError(
-        "No eres el asignado de este subproceso"
+        "No eres el asignado de este subpaso"
       );
     }
 
     if (substep.Status === "COMPLETED") {
-      throw new InvalidStateError("Este subproceso ya está completado");
+      throw new InvalidStateError("Este subpaso ya está completado");
     }
 
     const stepResult = await new sql.Request(transaction)
@@ -1034,7 +1034,7 @@ export async function completeSubstep(
     const process = processResult.recordset[0];
     if (!process || process.CurrentStepId !== step.Id) {
       throw new InvalidStateError(
-        "El paso de este subproceso no tiene actualmente el relevo"
+        "El paso de este subpaso no tiene actualmente el relevo"
       );
     }
 
@@ -1089,11 +1089,11 @@ export async function rejectSubstep(
 
     const substep = substepResult.recordset[0];
     if (!substep) {
-      throw new HttpError(404, "Subproceso no encontrado");
+      throw new HttpError(404, "Subpaso no encontrado");
     }
 
     if (substep.Status !== "COMPLETED") {
-      throw new InvalidStateError("Solo se puede rechazar un subproceso completado");
+      throw new InvalidStateError("Solo se puede rechazar un subpaso completado");
     }
 
     const stepResult = await new sql.Request(transaction)
@@ -1117,7 +1117,7 @@ export async function rejectSubstep(
     const process = processResult.recordset[0];
     if (!process || process.CurrentStepId !== step.Id) {
       throw new InvalidStateError(
-        "El paso de este subproceso no tiene actualmente el relevo"
+        "El paso de este subpaso no tiene actualmente el relevo"
       );
     }
 
