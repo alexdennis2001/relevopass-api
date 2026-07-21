@@ -6,6 +6,7 @@ import { processesRouter } from "./processes.routes";
 import { processStepsRouter } from "./processSteps.routes";
 import { processSubstepsRouter } from "./processSubsteps.routes";
 import { processTemplatesRouter } from "./processTemplates.routes";
+import { pushRouter } from "./push.routes";
 import { usersRouter } from "./users.routes";
 
 export const apiRouter = Router();
@@ -18,3 +19,4 @@ apiRouter.use("/process-substeps", processSubstepsRouter);
 apiRouter.use("/process-templates", processTemplatesRouter);
 apiRouter.use("/users", usersRouter);
 apiRouter.use("/my-tasks", myTasksRouter);
+apiRouter.use("/push", pushRouter);
