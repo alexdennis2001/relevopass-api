@@ -32,10 +32,10 @@ async function getStepContext(
         admin.FirstName AS AdminFirstName, admin.LastName AS AdminLastName,
         assignee.Id AS AssigneeUserId, assignee.Email AS AssigneeEmail,
         assignee.FirstName AS AssigneeFirstName
-      FROM dbo.ProcessSteps s
-      INNER JOIN dbo.Processes p ON p.Id = s.ProcessId
-      INNER JOIN dbo.Users admin ON admin.Id = p.CreatedByUserId
-      INNER JOIN dbo.Users assignee ON assignee.Id = s.AssigneeUserId
+      FROM ProcessSteps s
+      INNER JOIN Processes p ON p.Id = s.ProcessId
+      INNER JOIN Users admin ON admin.Id = p.CreatedByUserId
+      INNER JOIN Users assignee ON assignee.Id = s.AssigneeUserId
       WHERE s.Id = @stepId
     `);
   return result.recordset[0];
@@ -47,7 +47,7 @@ async function getTotalSteps(processId: string): Promise<number> {
     .request()
     .input("processId", sql.UniqueIdentifier, processId)
     .query<{ Total: number }>(
-      "SELECT COUNT(*) AS Total FROM dbo.ProcessSteps WHERE ProcessId = @processId"
+      "SELECT COUNT(*) AS Total FROM ProcessSteps WHERE ProcessId = @processId"
     );
   return result.recordset[0]?.Total ?? 0;
 }
@@ -117,8 +117,8 @@ export async function notifyStepActivated(stepId: string): Promise<void> {
     Title: string;
   }>(`
       SELECT u.Id AS UserId, u.Email, u.FirstName, sub.Title
-      FROM dbo.ProcessSubsteps sub
-      INNER JOIN dbo.Users u ON u.Id = sub.AssigneeUserId
+      FROM ProcessSubsteps sub
+      INNER JOIN Users u ON u.Id = sub.AssigneeUserId
       WHERE sub.ProcessStepId = @stepId
     `);
 
@@ -189,7 +189,7 @@ export async function notifyIfAllSubstepsCompleted(
       SELECT
         COUNT(*) AS Total,
         SUM(CASE WHEN Status <> 'COMPLETED' THEN 1 ELSE 0 END) AS Remaining
-      FROM dbo.ProcessSubsteps
+      FROM ProcessSubsteps
       WHERE ProcessStepId = @stepId
     `);
 

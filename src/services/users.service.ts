@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getPool, sql } from "../db/pool";
 
 export type UserRecord = {
@@ -28,7 +29,7 @@ export function toPublicUser(user: UserRecord) {
   };
 }
 
-const UNIQUE_VIOLATION_ERROR_NUMBERS = new Set([2601, 2627]);
+const UNIQUE_VIOLATION_ERROR_CODE = "ER_DUP_ENTRY";
 
 export async function findUserByEmail(
   email: string
@@ -37,7 +38,7 @@ export async function findUserByEmail(
   const result = await pool
     .request()
     .input("email", sql.NVarChar(320), email)
-    .query<UserRecord>("SELECT * FROM dbo.Users WHERE Email = @email");
+    .query<UserRecord>("SELECT * FROM Users WHERE Email = @email");
 
   return result.recordset[0] ?? null;
 }
@@ -47,7 +48,7 @@ export async function findUserById(id: string): Promise<UserRecord | null> {
   const result = await pool
     .request()
     .input("id", sql.UniqueIdentifier, id)
-    .query<UserRecord>("SELECT * FROM dbo.Users WHERE Id = @id");
+    .query<UserRecord>("SELECT * FROM Users WHERE Id = @id");
 
   return result.recordset[0] ?? null;
 }
@@ -57,7 +58,7 @@ export async function listUsers(): Promise<UserRecord[]> {
   const result = await pool
     .request()
     .query<UserRecord>(
-      "SELECT * FROM dbo.Users WHERE IsActive = 1 ORDER BY FirstName, LastName"
+      "SELECT * FROM Users WHERE IsActive = 1 ORDER BY FirstName, LastName"
     );
 
   return result.recordset;
@@ -72,8 +73,8 @@ export async function updatePasswordHash(
     .request()
     .input("id", sql.UniqueIdentifier, userId)
     .input("passwordHash", sql.NVarChar(sql.MAX), passwordHash).query(`
-      UPDATE dbo.Users
-      SET PasswordHash = @passwordHash, UpdatedAt = SYSUTCDATETIME()
+      UPDATE Users
+      SET PasswordHash = @passwordHash, UpdatedAt = UTC_TIMESTAMP(3)
       WHERE Id = @id
     `);
 }
@@ -86,29 +87,35 @@ export async function createUser(input: {
   role: "ADMIN" | "USER";
 }): Promise<UserRecord> {
   const pool = await getPool();
+  const id = randomUUID();
 
   try {
-    const result = await pool
+    await pool
       .request()
+      .input("id", sql.UniqueIdentifier, id)
       .input("firstName", sql.NVarChar(100), input.firstName)
       .input("lastName", sql.NVarChar(150), input.lastName)
       .input("email", sql.NVarChar(320), input.email)
       .input("passwordHash", sql.NVarChar(sql.MAX), input.passwordHash)
-      .input("role", sql.VarChar(20), input.role).query<UserRecord>(`
-        INSERT INTO dbo.Users (FirstName, LastName, Email, PasswordHash, Role)
-        OUTPUT INSERTED.*
-        VALUES (@firstName, @lastName, @email, @passwordHash, @role)
+      .input("role", sql.VarChar(20), input.role).query(`
+        INSERT INTO Users (Id, FirstName, LastName, Email, PasswordHash, Role)
+        VALUES (@id, @firstName, @lastName, @email, @passwordHash, @role)
       `);
-
-    return result.recordset[0];
   } catch (err) {
     if (
       err instanceof Error &&
-      "number" in err &&
-      UNIQUE_VIOLATION_ERROR_NUMBERS.has((err as { number: number }).number)
+      "code" in err &&
+      (err as { code: string }).code === UNIQUE_VIOLATION_ERROR_CODE
     ) {
       throw new DuplicateEmailError(input.email);
     }
     throw err;
   }
+
+  const result = await pool
+    .request()
+    .input("id", sql.UniqueIdentifier, id)
+    .query<UserRecord>("SELECT * FROM Users WHERE Id = @id");
+
+  return result.recordset[0];
 }

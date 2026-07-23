@@ -1,7 +1,11 @@
 import { NextFunction, Request, Response } from "express";
 import { z } from "zod";
 import { VAPID_PUBLIC_KEY } from "../lib/webPush";
-import { subscribe, unsubscribe } from "../services/pushSubscriptions.service";
+import {
+  isEndpointSubscribedByUser,
+  subscribe,
+  unsubscribe,
+} from "../services/pushSubscriptions.service";
 
 export function getVapidPublicKeyHandler(req: Request, res: Response) {
   res.json({ publicKey: VAPID_PUBLIC_KEY });
@@ -44,8 +48,29 @@ export async function unsubscribeHandler(
 ) {
   try {
     const body = unsubscribeSchema.parse(req.body);
-    await unsubscribe(body.endpoint);
+    await unsubscribe(body.endpoint, req.user!.sub);
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+}
+
+const subscriptionStatusSchema = z.object({
+  endpoint: z.string().min(1),
+});
+
+export async function getSubscriptionStatusHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  try {
+    const query = subscriptionStatusSchema.parse(req.query);
+    const subscribed = await isEndpointSubscribedByUser(
+      req.user!.sub,
+      query.endpoint
+    );
+    res.json({ subscribed });
   } catch (err) {
     next(err);
   }

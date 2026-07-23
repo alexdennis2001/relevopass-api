@@ -19,7 +19,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
     Id: string;
     FirstName: string;
     IsActive: boolean;
-  }>("SELECT Id, FirstName, IsActive FROM dbo.Users WHERE Email = @email");
+  }>("SELECT Id, FirstName, IsActive FROM Users WHERE Email = @email");
 
   const user = userResult.recordset[0];
   if (!user || !user.IsActive) {
@@ -34,7 +34,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
     .request()
     .input("userId", sql.UniqueIdentifier, user.Id)
     .query(
-      "DELETE FROM dbo.PasswordResetTokens WHERE UserId = @userId AND UsedAt IS NULL"
+      "DELETE FROM PasswordResetTokens WHERE UserId = @userId AND UsedAt IS NULL"
     );
 
   await pool
@@ -42,7 +42,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
     .input("userId", sql.UniqueIdentifier, user.Id)
     .input("tokenHash", sql.Char(64), tokenHash)
     .input("expiresAt", sql.DateTime2, expiresAt).query(`
-      INSERT INTO dbo.PasswordResetTokens (UserId, TokenHash, ExpiresAt)
+      INSERT INTO PasswordResetTokens (UserId, TokenHash, ExpiresAt)
       VALUES (@userId, @tokenHash, @expiresAt)
     `);
 
@@ -81,8 +81,8 @@ export async function consumePasswordResetToken(
     Id: string;
     UserId: string;
   }>(`
-      SELECT Id, UserId FROM dbo.PasswordResetTokens
-      WHERE TokenHash = @tokenHash AND UsedAt IS NULL AND ExpiresAt > SYSUTCDATETIME()
+      SELECT Id, UserId FROM PasswordResetTokens
+      WHERE TokenHash = @tokenHash AND UsedAt IS NULL AND ExpiresAt > UTC_TIMESTAMP(3)
     `);
 
   const row = result.recordset[0];
@@ -94,7 +94,7 @@ export async function consumePasswordResetToken(
     .request()
     .input("id", sql.UniqueIdentifier, row.Id)
     .query(
-      "UPDATE dbo.PasswordResetTokens SET UsedAt = SYSUTCDATETIME() WHERE Id = @id"
+      "UPDATE PasswordResetTokens SET UsedAt = UTC_TIMESTAMP(3) WHERE Id = @id"
     );
 
   return { userId: row.UserId };

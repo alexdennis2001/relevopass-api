@@ -22,23 +22,45 @@ export async function subscribe(
     .input("endpoint", sql.NVarChar(1000), subscription.endpoint)
     .input("p256dh", sql.NVarChar(200), subscription.p256dh)
     .input("auth", sql.NVarChar(200), subscription.auth).query(`
-      MERGE dbo.PushSubscriptions AS target
-      USING (SELECT @endpoint AS Endpoint) AS source
-      ON target.Endpoint = source.Endpoint
-      WHEN MATCHED THEN
-        UPDATE SET UserId = @userId, P256dh = @p256dh, Auth = @auth
-      WHEN NOT MATCHED THEN
-        INSERT (UserId, Endpoint, P256dh, Auth)
-        VALUES (@userId, @endpoint, @p256dh, @auth);
+      INSERT INTO PushSubscriptions (UserId, Endpoint, P256dh, Auth)
+      VALUES (@userId, @endpoint, @p256dh, @auth)
+      ON DUPLICATE KEY UPDATE UserId = @userId, P256dh = @p256dh, Auth = @auth
     `);
 }
 
-export async function unsubscribe(endpoint: string): Promise<void> {
+export async function unsubscribe(endpoint: string, userId?: string): Promise<void> {
   const pool = await getPool();
-  await pool
+  const request = pool.request().input("endpoint", sql.NVarChar(1000), endpoint);
+
+  if (userId) {
+    await request
+      .input("userId", sql.UniqueIdentifier, userId)
+      .query("DELETE FROM PushSubscriptions WHERE Endpoint = @endpoint AND UserId = @userId");
+  } else {
+    await request.query("DELETE FROM PushSubscriptions WHERE Endpoint = @endpoint");
+  }
+}
+
+/**
+ * Whether the given browser endpoint is currently registered to this user --
+ * used on login to determine the notification bell's initial state, since a
+ * browser-level PushManager subscription can exist from a *different*
+ * account on a shared device and must not be shown as "on" for this user.
+ */
+export async function isEndpointSubscribedByUser(
+  userId: string,
+  endpoint: string
+): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool
     .request()
+    .input("userId", sql.UniqueIdentifier, userId)
     .input("endpoint", sql.NVarChar(1000), endpoint)
-    .query("DELETE FROM dbo.PushSubscriptions WHERE Endpoint = @endpoint");
+    .query(
+      "SELECT 1 FROM PushSubscriptions WHERE UserId = @userId AND Endpoint = @endpoint"
+    );
+
+  return result.recordset.length > 0;
 }
 
 /**
@@ -58,7 +80,7 @@ export async function sendPushToUser(
     P256dh: string;
     Auth: string;
   }>(
-    "SELECT Endpoint, P256dh, Auth FROM dbo.PushSubscriptions WHERE UserId = @userId"
+    "SELECT Endpoint, P256dh, Auth FROM PushSubscriptions WHERE UserId = @userId"
   );
 
   await Promise.all(

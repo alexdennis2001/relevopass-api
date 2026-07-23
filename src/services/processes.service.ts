@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getPool, sql } from "../db/pool";
 import { HttpError } from "../middleware/errorHandler";
 import { ForbiddenActionError, InvalidStateError } from "../lib/workflowErrors";
@@ -68,7 +69,7 @@ export class InvalidAssigneeError extends Error {
   }
 }
 
-const FK_VIOLATION_ERROR_NUMBER = 547;
+const FK_VIOLATION_ERROR_CODE = "ER_NO_REFERENCED_ROW_2";
 const DEFAULT_ACTION_LABEL = "Completar";
 
 export type CreateSubstepInput = {
@@ -100,20 +101,20 @@ async function insertSteps(
   let position = startingPosition;
 
   for (const step of steps) {
-    const stepResult = await new sql.Request(transaction)
+    const stepId = randomUUID();
+    await new sql.Request(transaction)
+      .input("id", sql.UniqueIdentifier, stepId)
       .input("processId", sql.UniqueIdentifier, processId)
       .input("position", sql.Int, position)
       .input("assigneeUserId", sql.UniqueIdentifier, step.assigneeUserId)
       .input("title", sql.NVarChar(150), step.title)
       .input("description", sql.NVarChar(1000), step.description ?? null)
       .input("actionLabel", sql.NVarChar(100), DEFAULT_ACTION_LABEL)
-      .input("status", sql.VarChar(20), "WAITING").query<{ Id: string }>(`
-        INSERT INTO dbo.ProcessSteps (ProcessId, Position, AssigneeUserId, Title, Description, ActionLabel, Status)
-        OUTPUT INSERTED.Id
-        VALUES (@processId, @position, @assigneeUserId, @title, @description, @actionLabel, @status)
+      .input("status", sql.VarChar(20), "WAITING").query(`
+        INSERT INTO ProcessSteps (Id, ProcessId, Position, AssigneeUserId, Title, Description, ActionLabel, Status)
+        VALUES (@id, @processId, @position, @assigneeUserId, @title, @description, @actionLabel, @status)
       `);
 
-    const stepId = stepResult.recordset[0].Id;
     position++;
 
     for (let j = 0; j < step.substeps.length; j++) {
@@ -126,7 +127,7 @@ async function insertSteps(
         .input("actionLabel", sql.NVarChar(100), DEFAULT_ACTION_LABEL)
         .input("displayOrder", sql.Int, j)
         .input("status", sql.VarChar(20), "WAITING").query(`
-          INSERT INTO dbo.ProcessSubsteps (ProcessStepId, AssigneeUserId, Title, Description, ActionLabel, DisplayOrder, Status)
+          INSERT INTO ProcessSubsteps (ProcessStepId, AssigneeUserId, Title, Description, ActionLabel, DisplayOrder, Status)
           VALUES (@processStepId, @assigneeUserId, @title, @description, @actionLabel, @displayOrder, @status)
         `);
     }
@@ -141,18 +142,17 @@ export async function createProcess(
   await transaction.begin();
 
   try {
-    const processResult = await new sql.Request(transaction)
+    const processId = randomUUID();
+    await new sql.Request(transaction)
+      .input("id", sql.UniqueIdentifier, processId)
       .input("name", sql.NVarChar(200), input.name)
       .input("description", sql.NVarChar(2000), input.description ?? null)
       .input("status", sql.VarChar(20), "DRAFT")
       .input("createdByUserId", sql.UniqueIdentifier, input.createdByUserId)
-      .query<{ Id: string }>(`
-        INSERT INTO dbo.Processes (Name, Description, Status, CreatedByUserId)
-        OUTPUT INSERTED.Id
-        VALUES (@name, @description, @status, @createdByUserId)
+      .query(`
+        INSERT INTO Processes (Id, Name, Description, Status, CreatedByUserId)
+        VALUES (@id, @name, @description, @status, @createdByUserId)
       `);
-
-    const processId = processResult.recordset[0].Id;
 
     await insertSteps(transaction, processId, input.steps, 1);
 
@@ -160,7 +160,7 @@ export async function createProcess(
       .input("processId", sql.UniqueIdentifier, processId)
       .input("actorUserId", sql.UniqueIdentifier, input.createdByUserId)
       .input("eventType", sql.VarChar(50), "PROCESS_CREATED").query(`
-        INSERT INTO dbo.ProcessEvents (ProcessId, ActorUserId, EventType)
+        INSERT INTO ProcessEvents (ProcessId, ActorUserId, EventType)
         VALUES (@processId, @actorUserId, @eventType)
       `);
 
@@ -170,8 +170,8 @@ export async function createProcess(
     await transaction.rollback();
     if (
       err instanceof Error &&
-      "number" in err &&
-      (err as { number: number }).number === FK_VIOLATION_ERROR_NUMBER
+      "code" in err &&
+      (err as { code: string }).code === FK_VIOLATION_ERROR_CODE
     ) {
       throw new InvalidAssigneeError();
     }
@@ -202,7 +202,7 @@ async function syncSubsteps(
   const currentResult = await new sql.Request(transaction)
     .input("stepId", sql.UniqueIdentifier, stepId)
     .query<{ Id: string }>(
-      "SELECT Id FROM dbo.ProcessSubsteps WHERE ProcessStepId = @stepId"
+      "SELECT Id FROM ProcessSubsteps WHERE ProcessStepId = @stepId"
     );
   const currentIds = new Set(currentResult.recordset.map((r) => r.Id));
   const desiredIds = new Set(
@@ -215,7 +215,7 @@ async function syncSubsteps(
         .input("substepId", sql.UniqueIdentifier, currentId)
         .input("stepId", sql.UniqueIdentifier, stepId)
         .query(
-          "DELETE FROM dbo.ProcessSubsteps WHERE Id = @substepId AND ProcessStepId = @stepId"
+          "DELETE FROM ProcessSubsteps WHERE Id = @substepId AND ProcessStepId = @stepId"
         );
     }
   }
@@ -231,7 +231,7 @@ async function syncSubsteps(
         .input("title", sql.NVarChar(150), substep.title)
         .input("description", sql.NVarChar(1000), substep.description ?? null)
         .input("displayOrder", sql.Int, j).query(`
-          UPDATE dbo.ProcessSubsteps
+          UPDATE ProcessSubsteps
           SET AssigneeUserId = @assigneeUserId, Title = @title, Description = @description, DisplayOrder = @displayOrder
           WHERE Id = @substepId AND ProcessStepId = @stepId
         `);
@@ -244,7 +244,7 @@ async function syncSubsteps(
         .input("actionLabel", sql.NVarChar(100), DEFAULT_ACTION_LABEL)
         .input("displayOrder", sql.Int, j)
         .input("status", sql.VarChar(20), "WAITING").query(`
-          INSERT INTO dbo.ProcessSubsteps (ProcessStepId, AssigneeUserId, Title, Description, ActionLabel, DisplayOrder, Status)
+          INSERT INTO ProcessSubsteps (ProcessStepId, AssigneeUserId, Title, Description, ActionLabel, DisplayOrder, Status)
           VALUES (@processStepId, @assigneeUserId, @title, @description, @actionLabel, @displayOrder, @status)
         `);
     }
@@ -265,7 +265,7 @@ export async function syncProcessSteps(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .query<{ Status: string }>(
-        "SELECT Status FROM dbo.Processes WHERE Id = @processId"
+        "SELECT Status FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -279,7 +279,7 @@ export async function syncProcessSteps(
     const currentStepsResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .query<{ Id: string }>(
-        "SELECT Id FROM dbo.ProcessSteps WHERE ProcessId = @processId"
+        "SELECT Id FROM ProcessSteps WHERE ProcessId = @processId"
       );
     const currentStepIds = new Set(
       currentStepsResult.recordset.map((r) => r.Id)
@@ -295,13 +295,13 @@ export async function syncProcessSteps(
         await new sql.Request(transaction)
           .input("stepId", sql.UniqueIdentifier, currentId)
           .query(
-            "DELETE FROM dbo.ProcessSubsteps WHERE ProcessStepId = @stepId"
+            "DELETE FROM ProcessSubsteps WHERE ProcessStepId = @stepId"
           );
         await new sql.Request(transaction)
           .input("stepId", sql.UniqueIdentifier, currentId)
           .input("processId", sql.UniqueIdentifier, processId)
           .query(
-            "DELETE FROM dbo.ProcessSteps WHERE Id = @stepId AND ProcessId = @processId"
+            "DELETE FROM ProcessSteps WHERE Id = @stepId AND ProcessId = @processId"
           );
       }
     }
@@ -317,7 +317,7 @@ export async function syncProcessSteps(
           .input("processId", sql.UniqueIdentifier, processId)
           .input("position", sql.Int, SCRATCH_POSITION_OFFSET + scratchIndex)
           .query(
-            "UPDATE dbo.ProcessSteps SET Position = @position WHERE Id = @stepId AND ProcessId = @processId"
+            "UPDATE ProcessSteps SET Position = @position WHERE Id = @stepId AND ProcessId = @processId"
           );
         scratchIndex++;
       }
@@ -337,25 +337,25 @@ export async function syncProcessSteps(
           .input("title", sql.NVarChar(150), step.title)
           .input("description", sql.NVarChar(1000), step.description ?? null)
           .query(`
-            UPDATE dbo.ProcessSteps
+            UPDATE ProcessSteps
             SET Position = @position, AssigneeUserId = @assigneeUserId, Title = @title, Description = @description
             WHERE Id = @stepId AND ProcessId = @processId
           `);
         stepId = step.id;
       } else {
-        const insertResult = await new sql.Request(transaction)
+        stepId = randomUUID();
+        await new sql.Request(transaction)
+          .input("id", sql.UniqueIdentifier, stepId)
           .input("processId", sql.UniqueIdentifier, processId)
           .input("position", sql.Int, finalPosition)
           .input("assigneeUserId", sql.UniqueIdentifier, step.assigneeUserId)
           .input("title", sql.NVarChar(150), step.title)
           .input("description", sql.NVarChar(1000), step.description ?? null)
           .input("actionLabel", sql.NVarChar(100), DEFAULT_ACTION_LABEL)
-          .input("status", sql.VarChar(20), "WAITING").query<{ Id: string }>(`
-            INSERT INTO dbo.ProcessSteps (ProcessId, Position, AssigneeUserId, Title, Description, ActionLabel, Status)
-            OUTPUT INSERTED.Id
-            VALUES (@processId, @position, @assigneeUserId, @title, @description, @actionLabel, @status)
+          .input("status", sql.VarChar(20), "WAITING").query(`
+            INSERT INTO ProcessSteps (Id, ProcessId, Position, AssigneeUserId, Title, Description, ActionLabel, Status)
+            VALUES (@id, @processId, @position, @assigneeUserId, @title, @description, @actionLabel, @status)
           `);
-        stepId = insertResult.recordset[0].Id;
       }
 
       await syncSubsteps(transaction, stepId, step.substeps);
@@ -366,8 +366,8 @@ export async function syncProcessSteps(
     await transaction.rollback();
     if (
       err instanceof Error &&
-      "number" in err &&
-      (err as { number: number }).number === FK_VIOLATION_ERROR_NUMBER
+      "code" in err &&
+      (err as { code: string }).code === FK_VIOLATION_ERROR_CODE
     ) {
       throw new InvalidAssigneeError();
     }
@@ -383,7 +383,7 @@ export async function getProcessById(
   const processResult = await pool
     .request()
     .input("id", sql.UniqueIdentifier, id)
-    .query<ProcessRecord>("SELECT * FROM dbo.Processes WHERE Id = @id");
+    .query<ProcessRecord>("SELECT * FROM Processes WHERE Id = @id");
 
   const process = processResult.recordset[0];
   if (!process) {
@@ -397,8 +397,8 @@ export async function getProcessById(
         u.FirstName AS AssigneeFirstName,
         u.LastName AS AssigneeLastName,
         u.Email AS AssigneeEmail
-      FROM dbo.ProcessSteps s
-      INNER JOIN dbo.Users u ON u.Id = s.AssigneeUserId
+      FROM ProcessSteps s
+      INNER JOIN Users u ON u.Id = s.AssigneeUserId
       WHERE s.ProcessId = @processId
       ORDER BY s.Position
     `);
@@ -412,9 +412,9 @@ export async function getProcessById(
         u.FirstName AS AssigneeFirstName,
         u.LastName AS AssigneeLastName,
         u.Email AS AssigneeEmail
-      FROM dbo.ProcessSubsteps sub
-      INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
-      INNER JOIN dbo.Users u ON u.Id = sub.AssigneeUserId
+      FROM ProcessSubsteps sub
+      INNER JOIN ProcessSteps s ON s.Id = sub.ProcessStepId
+      INNER JOIN Users u ON u.Id = sub.AssigneeUserId
       WHERE s.ProcessId = @processId
       ORDER BY s.Position, sub.DisplayOrder
     `);
@@ -441,7 +441,7 @@ export async function deleteProcess(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .query<{ CreatedByUserId: string; Status: string }>(
-        "SELECT CreatedByUserId, Status FROM dbo.Processes WHERE Id = @processId"
+        "SELECT CreatedByUserId, Status FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -463,7 +463,7 @@ export async function deleteProcess(
         IsAssignee: number;
       }>(`
           SELECT CASE WHEN EXISTS (
-            SELECT 1 FROM dbo.ProcessSteps WHERE ProcessId = @processId AND AssigneeUserId = @actorUserId
+            SELECT 1 FROM ProcessSteps WHERE ProcessId = @processId AND AssigneeUserId = @actorUserId
           ) THEN 1 ELSE 0 END AS IsAssignee
         `);
       authorized = assigneeResult.recordset[0].IsAssignee === 1;
@@ -477,29 +477,29 @@ export async function deleteProcess(
 
     await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
-      .query("DELETE FROM dbo.ProcessEvents WHERE ProcessId = @processId");
+      .query("DELETE FROM ProcessEvents WHERE ProcessId = @processId");
 
     await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId).query(`
         DELETE sub
-        FROM dbo.ProcessSubsteps sub
-        INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
+        FROM ProcessSubsteps sub
+        INNER JOIN ProcessSteps s ON s.Id = sub.ProcessStepId
         WHERE s.ProcessId = @processId
       `);
 
     await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .query(
-        "UPDATE dbo.Processes SET CurrentStepId = NULL WHERE Id = @processId"
+        "UPDATE Processes SET CurrentStepId = NULL WHERE Id = @processId"
       );
 
     await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
-      .query("DELETE FROM dbo.ProcessSteps WHERE ProcessId = @processId");
+      .query("DELETE FROM ProcessSteps WHERE ProcessId = @processId");
 
     await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
-      .query("DELETE FROM dbo.Processes WHERE Id = @processId");
+      .query("DELETE FROM Processes WHERE Id = @processId");
 
     await transaction.commit();
   } catch (err) {
@@ -517,15 +517,15 @@ export async function getMyProcesses(
     .request()
     .input("userId", sql.UniqueIdentifier, userId).query<ProcessRecord>(`
       SELECT DISTINCT p.*
-      FROM dbo.Processes p
+      FROM Processes p
       WHERE p.CreatedByUserId = @userId
          OR EXISTS (
-              SELECT 1 FROM dbo.ProcessSteps s
+              SELECT 1 FROM ProcessSteps s
               WHERE s.ProcessId = p.Id AND s.AssigneeUserId = @userId
             )
          OR EXISTS (
-              SELECT 1 FROM dbo.ProcessSubsteps sub
-              INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
+              SELECT 1 FROM ProcessSubsteps sub
+              INNER JOIN ProcessSteps s ON s.Id = sub.ProcessStepId
               WHERE s.ProcessId = p.Id AND sub.AssigneeUserId = @userId
             )
       ORDER BY p.CreatedAt DESC
@@ -591,9 +591,9 @@ export async function getMyTasks(userId: string): Promise<{
         s.Id, s.ProcessId, p.Name AS ProcessName, s.Position, s.Title,
         s.Description, s.ActionLabel, s.Status, s.CompletionCount,
         s.ActivatedAt, s.CompletedAt, s.RejectionNote,
-        (SELECT COUNT(*) FROM dbo.ProcessSubsteps sub WHERE sub.ProcessStepId = s.Id) AS TotalSubsteps
-      FROM dbo.ProcessSteps s
-      INNER JOIN dbo.Processes p ON p.Id = s.ProcessId
+        (SELECT COUNT(*) FROM ProcessSubsteps sub WHERE sub.ProcessStepId = s.Id) AS TotalSubsteps
+      FROM ProcessSteps s
+      INNER JOIN Processes p ON p.Id = s.ProcessId
       WHERE s.AssigneeUserId = @userId AND s.Status = 'PENDING'
       ORDER BY p.Name, s.Position
     `);
@@ -606,9 +606,9 @@ export async function getMyTasks(userId: string): Promise<{
       SELECT
         sub.ProcessStepId, sub.Title,
         u.FirstName AS AssigneeFirstName, u.LastName AS AssigneeLastName
-      FROM dbo.ProcessSubsteps sub
-      INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
-      INNER JOIN dbo.Users u ON u.Id = sub.AssigneeUserId
+      FROM ProcessSubsteps sub
+      INNER JOIN ProcessSteps s ON s.Id = sub.ProcessStepId
+      INNER JOIN Users u ON u.Id = sub.AssigneeUserId
       WHERE s.AssigneeUserId = @userId AND s.Status = 'PENDING' AND sub.Status <> 'COMPLETED'
       ORDER BY sub.DisplayOrder
     `);
@@ -632,9 +632,9 @@ export async function getMyTasks(userId: string): Promise<{
         s.Title AS StepTitle, sub.Title, sub.Description, sub.ActionLabel,
         sub.Status, sub.CompletionCount, sub.ActivatedAt, sub.CompletedAt,
         sub.RejectionNote
-      FROM dbo.ProcessSubsteps sub
-      INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
-      INNER JOIN dbo.Processes p ON p.Id = s.ProcessId
+      FROM ProcessSubsteps sub
+      INNER JOIN ProcessSteps s ON s.Id = sub.ProcessStepId
+      INNER JOIN Processes p ON p.Id = s.ProcessId
       WHERE sub.AssigneeUserId = @userId AND sub.Status = 'PENDING'
       ORDER BY p.Name, s.Position, sub.DisplayOrder
     `);
@@ -668,8 +668,8 @@ export async function getProcessEvents(
         e.*,
         u.FirstName AS ActorFirstName,
         u.LastName AS ActorLastName
-      FROM dbo.ProcessEvents e
-      INNER JOIN dbo.Users u ON u.Id = e.ActorUserId
+      FROM ProcessEvents e
+      INNER JOIN Users u ON u.Id = e.ActorUserId
       WHERE e.ProcessId = @processId
       ORDER BY e.CreatedAt ASC, e.Id ASC
     `);
@@ -689,7 +689,7 @@ export async function getProcessStakeholderAccess(
     .request()
     .input("processId", sql.UniqueIdentifier, processId)
     .query<{ CreatedByUserId: string }>(
-      "SELECT CreatedByUserId FROM dbo.Processes WHERE Id = @processId"
+      "SELECT CreatedByUserId FROM Processes WHERE Id = @processId"
     );
 
   const process = processResult.recordset[0];
@@ -707,10 +707,10 @@ export async function getProcessStakeholderAccess(
       IsAssignee: number;
     }>(`
       SELECT CASE WHEN EXISTS (
-        SELECT 1 FROM dbo.ProcessSteps WHERE ProcessId = @processId AND AssigneeUserId = @userId
+        SELECT 1 FROM ProcessSteps WHERE ProcessId = @processId AND AssigneeUserId = @userId
         UNION ALL
-        SELECT 1 FROM dbo.ProcessSubsteps sub
-          INNER JOIN dbo.ProcessSteps s ON s.Id = sub.ProcessStepId
+        SELECT 1 FROM ProcessSubsteps sub
+          INNER JOIN ProcessSteps s ON s.Id = sub.ProcessStepId
           WHERE s.ProcessId = @processId AND sub.AssigneeUserId = @userId
       ) THEN 1 ELSE 0 END AS IsAssignee
     `);
@@ -744,7 +744,7 @@ async function logEvent(
       sql.NVarChar(sql.MAX),
       input.metadata ? JSON.stringify(input.metadata) : null
     ).query(`
-      INSERT INTO dbo.ProcessEvents (ProcessId, ProcessStepId, ProcessSubstepId, ActorUserId, EventType, Metadata)
+      INSERT INTO ProcessEvents (ProcessId, ProcessStepId, ProcessSubstepId, ActorUserId, EventType, Metadata)
       VALUES (@processId, @processStepId, @processSubstepId, @actorUserId, @eventType, @metadata)
     `);
 }
@@ -760,15 +760,15 @@ async function activateStep(
     .input("stepId", sql.UniqueIdentifier, stepId)
     .input("rejectionNote", sql.NVarChar(1000), rejectionNote)
     .query(`
-      UPDATE dbo.ProcessSteps
-      SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME(), RejectionNote = @rejectionNote
+      UPDATE ProcessSteps
+      SET Status = 'PENDING', ActivatedAt = UTC_TIMESTAMP(3), RejectionNote = @rejectionNote
       WHERE Id = @stepId
     `);
 
   await new sql.Request(transaction).input("stepId", sql.UniqueIdentifier, stepId)
     .query(`
-      UPDATE dbo.ProcessSubsteps
-      SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME(), RejectionNote = NULL
+      UPDATE ProcessSubsteps
+      SET Status = 'PENDING', ActivatedAt = UTC_TIMESTAMP(3), RejectionNote = NULL
       WHERE ProcessStepId = @stepId
     `);
 
@@ -792,7 +792,7 @@ export async function startProcess(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .query<{ Status: string }>(
-        "SELECT Status FROM dbo.Processes WHERE Id = @processId"
+        "SELECT Status FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -806,9 +806,10 @@ export async function startProcess(
     const firstStepResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .query<{ Id: string }>(`
-        SELECT TOP 1 Id FROM dbo.ProcessSteps
+        SELECT Id FROM ProcessSteps
         WHERE ProcessId = @processId
         ORDER BY Position ASC
+        LIMIT 1
       `);
 
     const firstStep = firstStepResult.recordset[0];
@@ -819,8 +820,8 @@ export async function startProcess(
     await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .input("stepId", sql.UniqueIdentifier, firstStep.Id).query(`
-        UPDATE dbo.Processes
-        SET Status = 'ACTIVE', StartedAt = SYSUTCDATETIME(), CurrentStepId = @stepId
+        UPDATE Processes
+        SET Status = 'ACTIVE', StartedAt = UTC_TIMESTAMP(3), CurrentStepId = @stepId
         WHERE Id = @processId
       `);
 
@@ -862,7 +863,7 @@ export async function completeStep(
         Position: number;
         AssigneeUserId: string;
       }>(
-        "SELECT Id, ProcessId, Position, AssigneeUserId FROM dbo.ProcessSteps WHERE Id = @stepId"
+        "SELECT Id, ProcessId, Position, AssigneeUserId FROM ProcessSteps WHERE Id = @stepId"
       );
 
     const step = stepResult.recordset[0];
@@ -877,7 +878,7 @@ export async function completeStep(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, step.ProcessId)
       .query<{ CurrentStepId: string | null }>(
-        "SELECT CurrentStepId FROM dbo.Processes WHERE Id = @processId"
+        "SELECT CurrentStepId FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -890,7 +891,7 @@ export async function completeStep(
     const incompleteSubstepsResult = await new sql.Request(transaction)
       .input("stepId", sql.UniqueIdentifier, stepId)
       .query<{ Count: number }>(
-        "SELECT COUNT(*) AS Count FROM dbo.ProcessSubsteps WHERE ProcessStepId = @stepId AND Status <> 'COMPLETED'"
+        "SELECT COUNT(*) AS Count FROM ProcessSubsteps WHERE ProcessStepId = @stepId AND Status <> 'COMPLETED'"
       );
 
     if (incompleteSubstepsResult.recordset[0].Count > 0) {
@@ -900,8 +901,8 @@ export async function completeStep(
     await new sql.Request(transaction)
       .input("stepId", sql.UniqueIdentifier, stepId)
       .input("actorUserId", sql.UniqueIdentifier, actorUserId).query(`
-        UPDATE dbo.ProcessSteps
-        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = SYSUTCDATETIME(), CompletedByUserId = @actorUserId, RejectionNote = NULL
+        UPDATE ProcessSteps
+        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = UTC_TIMESTAMP(3), CompletedByUserId = @actorUserId, RejectionNote = NULL
         WHERE Id = @stepId
       `);
 
@@ -916,7 +917,7 @@ export async function completeStep(
       .input("processId", sql.UniqueIdentifier, step.ProcessId)
       .input("nextPosition", sql.Int, step.Position + 1)
       .query<{ Id: string }>(
-        "SELECT Id FROM dbo.ProcessSteps WHERE ProcessId = @processId AND Position = @nextPosition"
+        "SELECT Id FROM ProcessSteps WHERE ProcessId = @processId AND Position = @nextPosition"
       );
 
     const nextStep = nextStepResult.recordset[0];
@@ -926,7 +927,7 @@ export async function completeStep(
         .input("processId", sql.UniqueIdentifier, step.ProcessId)
         .input("nextStepId", sql.UniqueIdentifier, nextStep.Id)
         .query(
-          "UPDATE dbo.Processes SET CurrentStepId = @nextStepId WHERE Id = @processId"
+          "UPDATE Processes SET CurrentStepId = @nextStepId WHERE Id = @processId"
         );
 
       await activateStep(transaction, nextStep.Id, step.ProcessId, actorUserId);
@@ -934,7 +935,7 @@ export async function completeStep(
       await new sql.Request(transaction)
         .input("processId", sql.UniqueIdentifier, step.ProcessId)
         .query(
-          "UPDATE dbo.Processes SET Status = 'COMPLETED', CompletedAt = SYSUTCDATETIME() WHERE Id = @processId"
+          "UPDATE Processes SET Status = 'COMPLETED', CompletedAt = UTC_TIMESTAMP(3), CurrentStepId = NULL WHERE Id = @processId"
         );
 
       await logEvent(transaction, {
@@ -977,7 +978,7 @@ export async function rejectStep(
         Position: number;
         AssigneeUserId: string;
       }>(
-        "SELECT Id, ProcessId, Position, AssigneeUserId FROM dbo.ProcessSteps WHERE Id = @stepId"
+        "SELECT Id, ProcessId, Position, AssigneeUserId FROM ProcessSteps WHERE Id = @stepId"
       );
 
     const step = stepResult.recordset[0];
@@ -992,7 +993,7 @@ export async function rejectStep(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, step.ProcessId)
       .query<{ CurrentStepId: string | null }>(
-        "SELECT CurrentStepId FROM dbo.Processes WHERE Id = @processId"
+        "SELECT CurrentStepId FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -1008,7 +1009,7 @@ export async function rejectStep(
 
     await new sql.Request(transaction).input("stepId", sql.UniqueIdentifier, stepId)
       .query(`
-        UPDATE dbo.ProcessSteps
+        UPDATE ProcessSteps
         SET Status = 'WAITING'
         WHERE Id = @stepId
       `);
@@ -1025,7 +1026,7 @@ export async function rejectStep(
       .input("processId", sql.UniqueIdentifier, step.ProcessId)
       .input("previousPosition", sql.Int, step.Position - 1)
       .query<{ Id: string }>(
-        "SELECT Id FROM dbo.ProcessSteps WHERE ProcessId = @processId AND Position = @previousPosition"
+        "SELECT Id FROM ProcessSteps WHERE ProcessId = @processId AND Position = @previousPosition"
       );
 
     const previousStep = previousStepResult.recordset[0];
@@ -1037,7 +1038,7 @@ export async function rejectStep(
       .input("processId", sql.UniqueIdentifier, step.ProcessId)
       .input("previousStepId", sql.UniqueIdentifier, previousStep.Id)
       .query(
-        "UPDATE dbo.Processes SET CurrentStepId = @previousStepId WHERE Id = @processId"
+        "UPDATE Processes SET CurrentStepId = @previousStepId WHERE Id = @processId"
       );
 
     await activateStep(
@@ -1078,7 +1079,7 @@ export async function completeSubstep(
         AssigneeUserId: string;
         Status: string;
       }>(
-        "SELECT Id, ProcessStepId, AssigneeUserId, Status FROM dbo.ProcessSubsteps WHERE Id = @substepId"
+        "SELECT Id, ProcessStepId, AssigneeUserId, Status FROM ProcessSubsteps WHERE Id = @substepId"
       );
 
     const substep = substepResult.recordset[0];
@@ -1099,7 +1100,7 @@ export async function completeSubstep(
     const stepResult = await new sql.Request(transaction)
       .input("stepId", sql.UniqueIdentifier, substep.ProcessStepId)
       .query<{ Id: string; ProcessId: string }>(
-        "SELECT Id, ProcessId FROM dbo.ProcessSteps WHERE Id = @stepId"
+        "SELECT Id, ProcessId FROM ProcessSteps WHERE Id = @stepId"
       );
 
     const step = stepResult.recordset[0];
@@ -1107,7 +1108,7 @@ export async function completeSubstep(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, step.ProcessId)
       .query<{ CurrentStepId: string | null }>(
-        "SELECT CurrentStepId FROM dbo.Processes WHERE Id = @processId"
+        "SELECT CurrentStepId FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -1120,8 +1121,8 @@ export async function completeSubstep(
     await new sql.Request(transaction)
       .input("substepId", sql.UniqueIdentifier, substepId)
       .input("actorUserId", sql.UniqueIdentifier, actorUserId).query(`
-        UPDATE dbo.ProcessSubsteps
-        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = SYSUTCDATETIME(), CompletedByUserId = @actorUserId, RejectionNote = NULL
+        UPDATE ProcessSubsteps
+        SET Status = 'COMPLETED', CompletionCount = CompletionCount + 1, CompletedAt = UTC_TIMESTAMP(3), CompletedByUserId = @actorUserId, RejectionNote = NULL
         WHERE Id = @substepId
       `);
 
@@ -1163,7 +1164,7 @@ export async function rejectSubstep(
         ProcessStepId: string;
         Status: string;
       }>(
-        "SELECT Id, ProcessStepId, Status FROM dbo.ProcessSubsteps WHERE Id = @substepId"
+        "SELECT Id, ProcessStepId, Status FROM ProcessSubsteps WHERE Id = @substepId"
       );
 
     const substep = substepResult.recordset[0];
@@ -1178,7 +1179,7 @@ export async function rejectSubstep(
     const stepResult = await new sql.Request(transaction)
       .input("stepId", sql.UniqueIdentifier, substep.ProcessStepId)
       .query<{ Id: string; ProcessId: string; AssigneeUserId: string }>(
-        "SELECT Id, ProcessId, AssigneeUserId FROM dbo.ProcessSteps WHERE Id = @stepId"
+        "SELECT Id, ProcessId, AssigneeUserId FROM ProcessSteps WHERE Id = @stepId"
       );
 
     const step = stepResult.recordset[0];
@@ -1190,7 +1191,7 @@ export async function rejectSubstep(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, step.ProcessId)
       .query<{ CurrentStepId: string | null }>(
-        "SELECT CurrentStepId FROM dbo.Processes WHERE Id = @processId"
+        "SELECT CurrentStepId FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -1204,8 +1205,8 @@ export async function rejectSubstep(
       .input("substepId", sql.UniqueIdentifier, substepId)
       .input("note", sql.NVarChar(1000), note)
       .query(`
-        UPDATE dbo.ProcessSubsteps
-        SET Status = 'PENDING', ActivatedAt = SYSUTCDATETIME(), CompletedAt = NULL, CompletedByUserId = NULL, RejectionNote = @note
+        UPDATE ProcessSubsteps
+        SET Status = 'PENDING', ActivatedAt = UTC_TIMESTAMP(3), CompletedAt = NULL, CompletedByUserId = NULL, RejectionNote = @note
         WHERE Id = @substepId
       `);
 

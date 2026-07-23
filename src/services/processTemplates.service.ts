@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { getPool, sql } from "../db/pool";
 import { HttpError } from "../middleware/errorHandler";
 import { ForbiddenActionError } from "../lib/workflowErrors";
@@ -55,7 +56,7 @@ export async function createTemplateFromProcess(
     const processResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
       .query<{ CreatedByUserId: string }>(
-        "SELECT CreatedByUserId FROM dbo.Processes WHERE Id = @processId"
+        "SELECT CreatedByUserId FROM Processes WHERE Id = @processId"
       );
 
     const process = processResult.recordset[0];
@@ -68,16 +69,16 @@ export async function createTemplateFromProcess(
       );
     }
 
-    const templateResult = await new sql.Request(transaction)
+    const templateId = randomUUID();
+    const createdAt = new Date();
+    await new sql.Request(transaction)
+      .input("id", sql.UniqueIdentifier, templateId)
       .input("name", sql.NVarChar(200), name)
       .input("createdByUserId", sql.UniqueIdentifier, actorUserId)
-      .query<{ Id: string; CreatedAt: Date }>(`
-        INSERT INTO dbo.ProcessTemplates (Name, CreatedByUserId)
-        OUTPUT INSERTED.Id, INSERTED.CreatedAt
-        VALUES (@name, @createdByUserId)
+      .input("createdAt", sql.DateTime2, createdAt).query(`
+        INSERT INTO ProcessTemplates (Id, Name, CreatedByUserId, CreatedAt)
+        VALUES (@id, @name, @createdByUserId, @createdAt)
       `);
-
-    const templateId = templateResult.recordset[0].Id;
 
     const stepsResult = await new sql.Request(transaction)
       .input("processId", sql.UniqueIdentifier, processId)
@@ -90,26 +91,25 @@ export async function createTemplateFromProcess(
         ActionLabel: string;
       }>(`
         SELECT Id, Position, AssigneeUserId, Title, Description, ActionLabel
-        FROM dbo.ProcessSteps
+        FROM ProcessSteps
         WHERE ProcessId = @processId
         ORDER BY Position
       `);
 
     for (const step of stepsResult.recordset) {
-      const templateStepResult = await new sql.Request(transaction)
+      const templateStepId = randomUUID();
+      await new sql.Request(transaction)
+        .input("id", sql.UniqueIdentifier, templateStepId)
         .input("processTemplateId", sql.UniqueIdentifier, templateId)
         .input("position", sql.Int, step.Position)
         .input("assigneeUserId", sql.UniqueIdentifier, step.AssigneeUserId)
         .input("title", sql.NVarChar(150), step.Title)
         .input("description", sql.NVarChar(1000), step.Description)
         .input("actionLabel", sql.NVarChar(100), step.ActionLabel)
-        .query<{ Id: string }>(`
-          INSERT INTO dbo.ProcessTemplateSteps (ProcessTemplateId, Position, AssigneeUserId, Title, Description, ActionLabel)
-          OUTPUT INSERTED.Id
-          VALUES (@processTemplateId, @position, @assigneeUserId, @title, @description, @actionLabel)
+        .query(`
+          INSERT INTO ProcessTemplateSteps (Id, ProcessTemplateId, Position, AssigneeUserId, Title, Description, ActionLabel)
+          VALUES (@id, @processTemplateId, @position, @assigneeUserId, @title, @description, @actionLabel)
         `);
-
-      const templateStepId = templateStepResult.recordset[0].Id;
 
       const substepsResult = await new sql.Request(transaction)
         .input("stepId", sql.UniqueIdentifier, step.Id)
@@ -121,7 +121,7 @@ export async function createTemplateFromProcess(
           DisplayOrder: number;
         }>(`
           SELECT AssigneeUserId, Title, Description, ActionLabel, DisplayOrder
-          FROM dbo.ProcessSubsteps
+          FROM ProcessSubsteps
           WHERE ProcessStepId = @stepId
           ORDER BY DisplayOrder
         `);
@@ -134,7 +134,7 @@ export async function createTemplateFromProcess(
           .input("description", sql.NVarChar(1000), substep.Description)
           .input("actionLabel", sql.NVarChar(100), substep.ActionLabel)
           .input("displayOrder", sql.Int, substep.DisplayOrder).query(`
-            INSERT INTO dbo.ProcessTemplateSubsteps (ProcessTemplateStepId, AssigneeUserId, Title, Description, ActionLabel, DisplayOrder)
+            INSERT INTO ProcessTemplateSubsteps (ProcessTemplateStepId, AssigneeUserId, Title, Description, ActionLabel, DisplayOrder)
             VALUES (@processTemplateStepId, @assigneeUserId, @title, @description, @actionLabel, @displayOrder)
           `);
       }
@@ -145,7 +145,7 @@ export async function createTemplateFromProcess(
       Id: templateId,
       Name: name,
       CreatedByUserId: actorUserId,
-      CreatedAt: templateResult.recordset[0].CreatedAt,
+      CreatedAt: createdAt,
     };
   } catch (err) {
     await transaction.rollback();
@@ -157,7 +157,7 @@ export async function listTemplates(): Promise<ProcessTemplateSummary[]> {
   const pool = await getPool();
   const result = await pool.request().query<ProcessTemplateSummary>(`
     SELECT Id, Name, CreatedByUserId, CreatedAt
-    FROM dbo.ProcessTemplates
+    FROM ProcessTemplates
     ORDER BY CreatedAt DESC
   `);
   return result.recordset;
@@ -172,7 +172,7 @@ export async function getTemplateById(
     .request()
     .input("id", sql.UniqueIdentifier, id)
     .query<ProcessTemplateSummary>(
-      "SELECT Id, Name, CreatedByUserId, CreatedAt FROM dbo.ProcessTemplates WHERE Id = @id"
+      "SELECT Id, Name, CreatedByUserId, CreatedAt FROM ProcessTemplates WHERE Id = @id"
     );
 
   const template = templateResult.recordset[0];
@@ -189,8 +189,8 @@ export async function getTemplateById(
         u.FirstName AS AssigneeFirstName,
         u.LastName AS AssigneeLastName,
         u.Email AS AssigneeEmail
-      FROM dbo.ProcessTemplateSteps s
-      INNER JOIN dbo.Users u ON u.Id = s.AssigneeUserId
+      FROM ProcessTemplateSteps s
+      INNER JOIN Users u ON u.Id = s.AssigneeUserId
       WHERE s.ProcessTemplateId = @templateId
       ORDER BY s.Position
     `);
@@ -204,9 +204,9 @@ export async function getTemplateById(
         u.FirstName AS AssigneeFirstName,
         u.LastName AS AssigneeLastName,
         u.Email AS AssigneeEmail
-      FROM dbo.ProcessTemplateSubsteps sub
-      INNER JOIN dbo.ProcessTemplateSteps s ON s.Id = sub.ProcessTemplateStepId
-      INNER JOIN dbo.Users u ON u.Id = sub.AssigneeUserId
+      FROM ProcessTemplateSubsteps sub
+      INNER JOIN ProcessTemplateSteps s ON s.Id = sub.ProcessTemplateStepId
+      INNER JOIN Users u ON u.Id = sub.AssigneeUserId
       WHERE s.ProcessTemplateId = @templateId
       ORDER BY s.Position, sub.DisplayOrder
     `);
