@@ -13,7 +13,7 @@ function emailHeader(): string {
     <div style="text-align: center; background-color: #096043; padding: 28px 24px 20px;">
       <img
         src="${LOGO_DATA_URI}"
-        alt="RelevoPass"
+        alt="Relevo App"
         width="200"
         height="68"
         style="display: block; margin: 0 auto; width: 200px; height: auto; max-width: 100%;"
@@ -29,7 +29,7 @@ function emailFooter(): string {
   return `
     <div style="text-align: center; background-color: #074d36; color: #c8ddd2; padding: 20px 24px;">
       <p style="margin: 4px 0; font-size: 13px;">
-        Correo enviado automáticamente por la plataforma RelevoPass.
+        Correo enviado automáticamente por la plataforma Relevo App.
       </p>
 
       <p style="margin: 4px 0; font-size: 13px;">
@@ -37,7 +37,7 @@ function emailFooter(): string {
       </p>
 
       <p style="margin: 12px 0 0; font-size: 12px; color: #8fa9c9;">
-        © ${currentYear} RelevoPass. Todos los derechos reservados.
+        © ${currentYear} Relevo App. Todos los derechos reservados.
       </p>
     </div>`;
 }
@@ -45,8 +45,8 @@ function emailFooter(): string {
 function emailTextFooter(): string {
   const currentYear = new Date().getFullYear();
   return `—
-Correo enviado automáticamente por la plataforma RelevoPass. No respondas directamente a este mensaje.
-© ${currentYear} RelevoPass. Todos los derechos reservados.`;
+Correo enviado automáticamente por la plataforma Relevo App. No respondas directamente a este mensaje.
+© ${currentYear} Relevo App. Todos los derechos reservados.`;
 }
 
 export type StepNotificationEmailData = {

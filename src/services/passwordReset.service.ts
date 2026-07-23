@@ -51,7 +51,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
     recipientFirstName: user.FirstName,
     headline: "Restablece tu contraseña",
     intro:
-      "Recibimos una solicitud para restablecer la contraseña de tu cuenta de RelevoPass. Este enlace es válido por 1 hora.",
+      "Recibimos una solicitud para restablecer la contraseña de tu cuenta de Relevo App. Este enlace es válido por 1 hora.",
     ctaLabel: "Restablecer contraseña",
     ctaUrl: resetUrl,
     disclaimer: "Si tú no solicitaste esto, puedes ignorar este correo.",
@@ -60,7 +60,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
   try {
     await sendEmail({
       to: email,
-      subject: "Restablece tu contraseña de RelevoPass",
+      subject: "Restablece tu contraseña de Relevo App",
       html,
       text,
     });
